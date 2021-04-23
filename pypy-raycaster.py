@@ -106,11 +106,11 @@ def load_image(filename):
     return texture
 
 
-def wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
+def wallcast(x, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
     """ Calculations for wall raycasting.
     """
     # Calculate ray position and direction
-    camera_x: float = 2 * x / w - 1  # x-coordinate in camera space
+    camera_x: float = 2 * x / SCREEN_WIDTH - 1  # x-coordinate in camera space
     ray_dir_x, ray_dir_y = dir_x + plane_x * camera_x, dir_y + plane_y * camera_x
 
     # Which box of the map we're in
@@ -155,16 +155,16 @@ def wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
         perp_wall_dist = (map_y - pos_y + (1 - step_y) * 0.5) / ray_dir_y
 
     # Calculate height of line to draw on screen
-    line_height: int = int(h / perp_wall_dist)
+    line_height: int = int(SCREEN_HEIGHT / perp_wall_dist)
 
     # Calculate lowest and highest pixel to fill current stripe
-    draw_start: int = ((-line_height) >> 1) + (h >> 1)
+    draw_start: int = ((-line_height) >> 1) + (SCREEN_HEIGHT >> 1)
     if draw_start < 0:
         draw_start = 0
 
-    draw_end: int = (line_height >> 1) + (h >> 1)
-    if draw_end >= h:
-        draw_end = h
+    draw_end: int = (line_height >> 1) + (SCREEN_HEIGHT >> 1)
+    if draw_end >= SCREEN_HEIGHT:
+        draw_end = SCREEN_HEIGHT
 
     # Texturing calculations
     tex_num: int = WORLD_MAP[map_x][map_y] - 1
@@ -187,7 +187,7 @@ def wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
     step: float = TEX_HEIGHT / line_height
 
     # Starting tex coord
-    tex_pos: float = (draw_start - h * 0.5 + line_height * 0.5) * step
+    tex_pos: float = (draw_start - SCREEN_HEIGHT * 0.5 + line_height * 0.5) * step
     return tex_pos, draw_start, draw_end, step, tex_num, tex_x
 
 
@@ -234,9 +234,11 @@ def floorcast_x(floor_x, floor_y, floor_step_x, floor_step_y):
 
 
 def copy_color(buffer, x, y, source, tex_x, tex_y):
-    buffer[(x * SCREEN_HEIGHT + y) * 3 + 0] = source[(tex_x * TEX_HEIGHT + tex_y) * 3 + 0]
-    buffer[(x * SCREEN_HEIGHT + y) * 3 + 1] = source[(tex_x * TEX_HEIGHT + tex_y) * 3 + 1]
-    buffer[(x * SCREEN_HEIGHT + y) * 3 + 2] = source[(tex_x * TEX_HEIGHT + tex_y) * 3 + 2]
+    base_screen = (x * SCREEN_HEIGHT + y) * 3
+    base_tex = (tex_x * TEX_HEIGHT + tex_y) * 3
+    buffer[base_screen + 0] = source[base_tex + 0]
+    buffer[base_screen + 1] = source[base_tex + 1]
+    buffer[base_screen + 2] = source[base_tex + 2]
 
 
 def update_display(surface: pygame.Surface, display: pygame.Surface, buffer: bytearray, caption: str) -> None:
@@ -333,17 +335,15 @@ def main() -> None:
     floor_texture = colormap[3]
     ceiling_texture = colormap[6]
 
-    w: int = SCREEN_WIDTH
-    h: int = SCREEN_HEIGHT
 
     buffer =  bytearray(b"0" * SCREEN_WIDTH * SCREEN_HEIGHT * 3)
     while True:
         # Raycasting for floor/ceiling textures
-        for y in range(0, h):
+        for y in range(0, SCREEN_HEIGHT):
             floor_step_x, floor_step_y, floor_x, floor_y = floorcast_y(y, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y)
 
 
-            for x in range(0, w):
+            for x in range(0, SCREEN_WIDTH):
                 tx, ty, floor_x, floor_y = floorcast_x(floor_x, floor_y, floor_step_x, floor_step_y)
 
                 # Floor
@@ -353,8 +353,8 @@ def main() -> None:
                 copy_color(buffer, x, SCREEN_HEIGHT - y - 1, ceiling_texture, tx, ty)
 
         # Raycasting for wall textures
-        for x in range(0, w):
-            tex_pos, y1, y2, step, tex_num, tex_x = wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y)
+        for x in range(0, SCREEN_WIDTH):
+            tex_pos, y1, y2, step, tex_num, tex_x = wallcast(x, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y)
             texture = colormap[tex_num]
 
             for y in range(y1, y2):
