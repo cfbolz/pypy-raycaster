@@ -91,6 +91,7 @@ def load_image(filename):
     data = np.transpose(data, (1, 0, 2))
 
     colormap: list = [[0] * TEX_HEIGHT for i in range(TEX_WIDTH)]
+    texture = bytearray(TEX_HEIGHT * TEX_WIDTH * 3)
     for tex_y in range(TEX_HEIGHT):
         for tex_x in range(TEX_WIDTH):
             if (tex_x, tex_y) not in colormap:
@@ -98,8 +99,11 @@ def load_image(filename):
                 # Python int, vs a numpy uint8
                 red, green, blue = [int(x) for x in data[tex_x, tex_y]]
                 colormap[tex_x][tex_y] = (red, green, blue)
+                texture[(tex_x * TEX_HEIGHT + tex_y) * 3 + 0] = red
+                texture[(tex_x * TEX_HEIGHT + tex_y) * 3 + 1] = green
+                texture[(tex_x * TEX_HEIGHT + tex_y) * 3 + 2] = blue
 
-    return colormap
+    return texture
 
 
 def wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
@@ -229,11 +233,10 @@ def floorcast_x(floor_x, floor_y, floor_step_x, floor_step_y):
     return tx, ty, floor_x, floor_y
 
 
-def copy_color(buffer, x, y, source):
-    red, green, blue = source
-    buffer[(x * SCREEN_HEIGHT + y) * 3 + 0] = red
-    buffer[(x * SCREEN_HEIGHT + y) * 3 + 1] = green
-    buffer[(x * SCREEN_HEIGHT + y) * 3 + 2] = blue
+def copy_color(buffer, x, y, source, tex_x, tex_y):
+    buffer[(x * SCREEN_HEIGHT + y) * 3 + 0] = source[(tex_x * TEX_HEIGHT + tex_y) * 3 + 0]
+    buffer[(x * SCREEN_HEIGHT + y) * 3 + 1] = source[(tex_x * TEX_HEIGHT + tex_y) * 3 + 1]
+    buffer[(x * SCREEN_HEIGHT + y) * 3 + 2] = source[(tex_x * TEX_HEIGHT + tex_y) * 3 + 2]
 
 
 def update_display(surface: pygame.Surface, display: pygame.Surface, buffer: bytearray, caption: str) -> None:
@@ -344,19 +347,20 @@ def main() -> None:
                 tx, ty, floor_x, floor_y = floorcast_x(floor_x, floor_y, floor_step_x, floor_step_y)
 
                 # Floor
-                copy_color(buffer, x, y, floor_texture[tx][ty])
+                copy_color(buffer, x, y, floor_texture, tx, ty)
 
                 # Ceiling
-                copy_color(buffer, x, SCREEN_HEIGHT - y - 1, ceiling_texture[tx][ty])
+                copy_color(buffer, x, SCREEN_HEIGHT - y - 1, ceiling_texture, tx, ty)
 
         # Raycasting for wall textures
         for x in range(0, w):
             tex_pos, y1, y2, step, tex_num, tex_x = wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y)
+            texture = colormap[tex_num]
 
             for y in range(y1, y2):
                 tex_y: int = int(tex_pos) & (TEX_HEIGHT - 1)
                 tex_pos += step
-                copy_color(buffer, x, y, colormap[tex_num][tex_x][tex_y])
+                copy_color(buffer, x, y, texture, tex_x, tex_y)
 
         # Update display
         caption: str = "Textured Raycaster | FPS = {0:.2f}".format(clock.get_fps())
