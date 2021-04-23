@@ -43,16 +43,16 @@ import functools
 from PIL import Image
 
 
-SCREEN_WIDTH: int = 160
-SCREEN_HEIGHT: int = 120
-SCALE: int = 4
+SCREEN_WIDTH: int = 1024
+SCREEN_HEIGHT: int = 768
+SCALE: int = 1
 WINDOW_WIDTH: int = SCREEN_WIDTH * SCALE
 WINDOW_HEIGHT: int = SCREEN_HEIGHT * SCALE
 TEX_WIDTH: int = 64
 TEX_HEIGHT: int = 64
 MAP_WIDTH: int = 24
 MAP_HEIGHT: int = 24
-FPS: int = 30
+FPS: int = 60
 
 WORLD_MAP = [
     [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 7, 7, 7, 7, 7, 7, 7, 7],
@@ -90,16 +90,18 @@ def load_image(filename):
     data = np.asarray(img, dtype="uint8")
     data = np.transpose(data, (1, 0, 2))
 
-    colormap: dict = {}
+    colormap: list = [[0] * TEX_HEIGHT for i in range(TEX_WIDTH)]
     for tex_y in range(TEX_HEIGHT):
         for tex_x in range(TEX_WIDTH):
             if (tex_x, tex_y) not in colormap:
-                colormap[tex_x, tex_y] = data[tex_x, tex_y]
+                # this is actually the most important line! force the use of a
+                # Python int, vs a numpy uint8
+                red, green, blue = [int(x) for x in data[tex_x, tex_y]]
+                colormap[tex_x][tex_y] = (red, green, blue)
 
     return colormap
 
 
-@functools.lru_cache(maxsize=128)
 def wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
     """ Calculations for wall raycasting.
     """
@@ -185,7 +187,6 @@ def wallcast(x, w, h, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
     return tex_pos, draw_start, draw_end, step, tex_num, tex_x
 
 
-@functools.lru_cache(maxsize=128)
 def floorcast_y(y, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
     """ Outer loop calculations for floor and ceiling raycasting.
     """
@@ -213,7 +214,6 @@ def floorcast_y(y, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y):
     return floor_step_x, floor_step_y, floor_x, floor_y
 
 
-@functools.lru_cache(maxsize=128)
 def floorcast_x(floor_x, floor_y, floor_step_x, floor_step_y):
     """ Inner loop calculations for floor and ceiling raycasting.
     """
@@ -229,10 +229,20 @@ def floorcast_x(floor_x, floor_y, floor_step_x, floor_step_y):
     return tx, ty, floor_x, floor_y
 
 
-def update_display(surface: pygame.Surface, display: pygame.Surface, buffer: list, caption: str) -> None:
+def copy_color(buffer, x, y, source):
+    red, green, blue = source
+    buffer[(x * SCREEN_HEIGHT + y) * 3 + 0] = red
+    buffer[(x * SCREEN_HEIGHT + y) * 3 + 1] = green
+    buffer[(x * SCREEN_HEIGHT + y) * 3 + 2] = blue
+
+
+def update_display(surface: pygame.Surface, display: pygame.Surface, buffer: bytearray, caption: str) -> None:
     """ Updates window contents.
     """
-    pygame.surfarray.blit_array(surface, np.asarray(buffer, dtype="uint8"))
+    a = np.frombuffer(buffer, dtype="uint8")
+    a = a.reshape(SCREEN_WIDTH, SCREEN_HEIGHT, 3)
+
+    pygame.surfarray.blit_array(surface, a)
     pygame.transform.scale(surface, (WINDOW_WIDTH, WINDOW_HEIGHT), display)
     pygame.display.set_caption(caption)
     pygame.display.flip()
@@ -306,38 +316,38 @@ def main() -> None:
     surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
 
-    colormap: dict = {
-        0: load_image("pics/eagle.png"),
-        1: load_image("pics/redbrick.png"),
-        2: load_image("pics/purplestone.png"),
-        3: load_image("pics/greystone.png"),
-        4: load_image("pics/bluestone.png"),
-        5: load_image("pics/mossy.png"),
-        6: load_image("pics/wood.png"),
-        7: load_image("pics/colorstone.png"),
-        }
+    colormap = [
+        load_image("pics/eagle.png"),
+        load_image("pics/redbrick.png"),
+        load_image("pics/purplestone.png"),
+        load_image("pics/greystone.png"),
+        load_image("pics/bluestone.png"),
+        load_image("pics/mossy.png"),
+        load_image("pics/wood.png"),
+        load_image("pics/colorstone.png"),
+    ]
 
-    buffer: list = np.empty((SCREEN_WIDTH, SCREEN_HEIGHT, 3), dtype="uint8").tolist()
+    floor_texture = colormap[3]
+    ceiling_texture = colormap[6]
+
     w: int = SCREEN_WIDTH
     h: int = SCREEN_HEIGHT
 
+    buffer =  bytearray(b"0" * SCREEN_WIDTH * SCREEN_HEIGHT * 3)
     while True:
         # Raycasting for floor/ceiling textures
         for y in range(0, h):
             floor_step_x, floor_step_y, floor_x, floor_y = floorcast_y(y, dir_x, plane_x, dir_y, plane_y, pos_x, pos_y)
 
-            # Choose texture, draw pixel
-            floor_texture: int = 3
-            ceiling_texture: int = 6
 
             for x in range(0, w):
                 tx, ty, floor_x, floor_y = floorcast_x(floor_x, floor_y, floor_step_x, floor_step_y)
 
                 # Floor
-                buffer[x][y] = colormap[floor_texture][tx, ty]
+                copy_color(buffer, x, y, floor_texture[tx][ty])
 
                 # Ceiling
-                buffer[x][SCREEN_HEIGHT - y - 1] = colormap[ceiling_texture][tx, ty]
+                copy_color(buffer, x, SCREEN_HEIGHT - y - 1, ceiling_texture[tx][ty])
 
         # Raycasting for wall textures
         for x in range(0, w):
@@ -346,7 +356,7 @@ def main() -> None:
             for y in range(y1, y2):
                 tex_y: int = int(tex_pos) & (TEX_HEIGHT - 1)
                 tex_pos += step
-                buffer[x][y] = colormap[tex_num][tex_x, tex_y]
+                copy_color(buffer, x, y, colormap[tex_num][tex_x][tex_y])
 
         # Update display
         caption: str = "Textured Raycaster | FPS = {0:.2f}".format(clock.get_fps())
